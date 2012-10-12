@@ -29,5 +29,6 @@ TouchEffect can be played with its perl shell, while each of its utilities can a
 * Sample smoothness (FPS) during SWIPING on a browser page
 Firstly open the target web page with browser and make sure the content is long enough to be scrolled, and scroll the page to the middle position to make sure it can be scrolled freely.
 Then use 'xwininfo' to get the widget id of the browser window.
-And start TouchEffect with cmd below: perl ./touchEffect 
+And start TouchEffect with cmd below: 
+ perl touchEffect.pl -w WIDGET_ID -s X -m FPS -g SWIPING 
 

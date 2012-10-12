@@ -49,7 +49,7 @@ if (@ARGV > 0) {
                'o:s'=> \$orientation,
                'd:i'=> \$delay,
                'c:i'=> \$sampleCount,
-               'version|v'=> \$version);
+               'version|v'=> \$version,
                'help|h'=> \$help);
 }
 
