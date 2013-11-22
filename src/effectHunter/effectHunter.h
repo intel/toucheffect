@@ -31,6 +31,7 @@
 
 #define SAMPLE_FPS 0
 #define SAMPLE_TIMESTAMP 1
+#define SAMPLE_FPS_JITTERNESS 2
 
 class EffectHunter
 {

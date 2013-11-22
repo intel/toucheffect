@@ -25,6 +25,9 @@
 #include <fcntl.h>
 #include <iostream>
 #include <sys/stat.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
 
 const unsigned EventHunter::G_PAN       = 0x0;
 const unsigned EventHunter::G_SWIPE     = 0x1;
@@ -34,15 +37,33 @@ const unsigned EventHunter::G_SPREAD    = 0x4;
 const unsigned EventHunter::G_SWIPING   = 0x5;
 const unsigned EventHunter::G_ZOOMING   = 0x6;
 const unsigned EventHunter::G_FLICKING  = 0x7;
+const unsigned EventHunter::G_TOUCH       = 0x8;
+const unsigned EventHunter::G_TOUCH_HOME_SHORT       = 0x9;
+const unsigned EventHunter::G_TOUCH_HOME_LONG        = 0xa;
 
 const unsigned EventHunter::BREADTHWISE = 0x0;
 const unsigned EventHunter::LENGTHWAYS  = 0x1;
 
-EventHunter::EventHunter(const char * eventInterface, int centerX, int centerY, unsigned delay, unsigned orientation, unsigned step, unsigned stepCount, int speedFactor, int logLevel):
+const unsigned EventHunter::P_TYPE_A    = 0x0;
+const unsigned EventHunter::P_TYPE_B    = 0x1;
+
+EventHunter::EventHunter(const char * eventInterface, 
+                        int centerX, 
+                        int centerY, 
+                        unsigned delay, 
+                        unsigned orientation, 
+                        unsigned protocolType, 
+                        unsigned step, 
+                        unsigned stepCount, 
+                        int speedFactor, 
+                        int logLevel):
     mLogLevel(logLevel),
     mEventInterface(eventInterface),
+    mCenterX(centerX),
+    mCenterY(centerY),
     mDelay(delay),
     mOrientation(orientation),
+    mProtocol(protocolType),
     mStep(step),
     mStepCount(stepCount),
     mSpeedFactor(speedFactor),
@@ -50,7 +71,7 @@ EventHunter::EventHunter(const char * eventInterface, int centerX, int centerY, 
 {
     mEventFD = open(mEventInterface, O_RDWR|O_SYNC); 
     if(mEventFD <= 0){
-        std::cerr << "Fail to open input event interface." << std::endl;
+        std::cerr << "[Info]: Fail to open input event interface" << std::endl;
     }
 
     int length = mStep * mStepCount;
@@ -65,11 +86,44 @@ EventHunter::EventHunter(const char * eventInterface, int centerX, int centerY, 
         mPosY_a = centerY - length;
         mPosY_b = centerY + length;
     }
+    srand((unsigned)time(NULL));
+}
+
+EventHunter::EventHunter()
+{
 }
 
 EventHunter::~EventHunter()
 {
     close(mEventFD);
+}
+
+void EventHunter::setInterface(const char * eventInterface)
+{
+	if (mEventFD >0) {
+		close(mEventFD);
+	}
+	mEventInterface = eventInterface;
+    mEventFD = open(eventInterface, O_RDWR|O_SYNC); 
+    if(mEventFD <= 0){
+        std::cerr << "[Info]: Fail to open input event interface" << std::endl;
+    }
+}
+
+void EventHunter::setCenterPos(int posX, int posY)
+{
+    mCenterX = posX;
+    mCenterY = posY;
+}
+
+void EventHunter::setOrientation(unsigned orientation)
+{
+    mOrientation = orientation;
+}
+
+void EventHunter::setDelay(unsigned delay)
+{
+    mDelay = delay;
 }
 
 void EventHunter::simWriteEvent(unsigned short type, unsigned short code, int value) 
@@ -81,7 +135,7 @@ void EventHunter::simWriteEvent(unsigned short type, unsigned short code, int va
     event.value = value;
     gettimeofday(&event.time, NULL);
     if (write(mEventFD,&event,sizeof(event))!=sizeof(event)) {
-        std::cerr << "event write error" << std::endl;
+        std::cerr << "[Info]: Event write error" << std::endl;
     }
 }
 
@@ -93,10 +147,69 @@ void EventHunter::simMoveREL(int posX, int posY)
 
     simWriteEvent(EV_REL, REL_Y, posY);
 
-    write(mEventFD, &emptyEvent, sizeof(emptyEvent));
+    if(write(mEventFD,&emptyEvent,sizeof(emptyEvent))!=sizeof(emptyEvent)) {
+        std::cerr << "[Info]: Event write error" << std::endl;
+    }
 }
 
-void EventHunter::simMTMoveABS_ProtoB(int posX, int posY, int slot_id, int contact_id, bool touchDown)
+void EventHunter::simMTMove(int posX, int posY, int slot_id, int contact_id, bool touchDown, bool eventEnd)
+{
+    if (P_TYPE_A == mProtocol) {
+        simMTMoveProtoA(posX, posY, touchDown, eventEnd);
+    } else if (P_TYPE_B == mProtocol) {
+        simMTMoveProtoB(posX, posY, slot_id, contact_id, touchDown, eventEnd);
+    } else {
+        std::cerr << "[Info]: Unknown protocol" << std::endl;    
+    }
+}
+
+void EventHunter::simMTEnd(int slot_id)
+{
+    if (P_TYPE_A == mProtocol) {
+        simMTEndProtoA();
+    } else if (P_TYPE_B == mProtocol) {
+        simMTEndProtoB(slot_id);
+    } else {
+        std::cerr << "[Info]: Unknown protocol" << std::endl;    
+    }
+}
+
+void EventHunter::simMTMoveProtoA(int posX, int posY, bool touchDown, bool eventEnd)
+{
+    // Conform to old single point protocol
+    if (touchDown) {
+        simKeyEvent(330, 1);
+    }
+    simWriteEvent(EV_ABS, ABS_X, posX);
+    simWriteEvent(EV_ABS, ABS_Y, posY);
+
+    simWriteEvent(EV_ABS, ABS_MT_PRESSURE, 52);
+    simWriteEvent(EV_ABS, ABS_MT_POSITION_X, posX);
+    simWriteEvent(EV_ABS, ABS_MT_POSITION_Y, posY);
+    
+    simWriteEvent(EV_SYN, SYN_MT_REPORT, 0);
+
+    if (eventEnd) {
+        simWriteEvent(EV_SYN, SYN_REPORT, 0);
+    }
+
+    if (mIsFirstEvent) {
+        mIsFirstEvent = false;
+       //mFirstEventTS.tv_sec = mFirstEventTS.tv_nsec = 0;
+       mFirstEventTV.tv_sec = mFirstEventTV.tv_usec = 0;
+       //clock_gettime(CLOCK_MONOTONIC, &mFirstEventTS);
+       gettimeofday(&mFirstEventTV, NULL);
+    }
+}
+
+void EventHunter::simMTEndProtoA()
+{
+    simKeyEvent(330, 0);
+    simWriteEvent(EV_SYN, SYN_MT_REPORT, 0);
+    simWriteEvent(EV_SYN, SYN_REPORT, 0);
+}
+
+void EventHunter::simMTMoveProtoB(int posX, int posY, int slot_id, int contact_id, bool touchDown, bool eventEnd)
 {
     simWriteEvent(EV_ABS, ABS_MT_SLOT, slot_id);
 
@@ -104,20 +217,23 @@ void EventHunter::simMTMoveABS_ProtoB(int posX, int posY, int slot_id, int conta
         simWriteEvent(EV_ABS, ABS_MT_TRACKING_ID, contact_id);
     }
     
-    //simWriteEvent(EV_ABS, ABS_MT_TOUCH_MAJOR, 4);
-
     simWriteEvent(EV_ABS, ABS_MT_POSITION_X, posX);
-
     simWriteEvent(EV_ABS, ABS_MT_POSITION_Y, posY);
     
-    //simWriteEvent(EV_ABS, ABS_MT_PRESSURE, 52);
+    simWriteEvent(EV_ABS, ABS_MT_PRESSURE, 52);
+    simWriteEvent(EV_ABS, ABS_MT_TOUCH_MAJOR, 2);
 
     // Conform to old single point protocol
+    if (touchDown) {
+        simKeyEvent(330, 1);
+    }
     simWriteEvent(EV_ABS, ABS_X, posX);
     simWriteEvent(EV_ABS, ABS_Y, posY);
-    //simWriteEvent(EV_ABS, ABS_PRESSURE, 52);
+    simWriteEvent(EV_ABS, ABS_PRESSURE, 52);
 
-    simWriteEvent(EV_SYN, SYN_REPORT, 0);
+    if (eventEnd) {
+        simWriteEvent(EV_SYN, SYN_REPORT, 0);
+    }
         
     if (mIsFirstEvent) {
         mIsFirstEvent = false;
@@ -128,30 +244,46 @@ void EventHunter::simMTMoveABS_ProtoB(int posX, int posY, int slot_id, int conta
     }
 }
 
-void EventHunter::simMTEND_ProtoB(int slot_id)
+void EventHunter::simMTEndProtoB(int slot_id)
 {
     simWriteEvent(EV_ABS, ABS_MT_SLOT, slot_id);
 
     simWriteEvent(EV_ABS, ABS_MT_TRACKING_ID, -1);
+    
+    simKeyEvent(330, 0);
 
     simWriteEvent(EV_SYN, SYN_REPORT, 0);
+}
+
+void EventHunter::detect()
+{
+    // List all the input event interfaces under /dev/input/
+    // Ask user to SWIPING on the screen
+    std::cout << "[Info]: Please keep swiping on the touch screen with your finger ..." << std::endl;
+    // Try all the input event interfaces one by one
+    //setInterface(interface);
+    
 }
 
 void EventHunter::readEvent()
 {
     struct input_event ev;
-    struct timeval timeStamp;
-
+    //struct timeval timeStamp;
     bool tsFlag = false;
+    //bool cali_quit = true;
     
     while (1) {
         if(read(mEventFD, &ev, sizeof(struct input_event)) <= 0) {
-            std::cerr << "Event read error." << std::endl;
+            std::cerr << "[Info]: Event read error." << std::endl;
             return;
         }
+        //if(cali_quit){
+        //    std::cout<<ev.time.tv_sec<<std::endl; 
+        //    cali_quit = false;
+        //}
 
-        timeStamp.tv_sec = ev.time.tv_sec;
-        timeStamp.tv_usec = ev.time.tv_usec;
+        //timeStamp.tv_sec = ev.time.tv_sec;
+        //timeStamp.tv_usec = ev.time.tv_usec;
         if (ev.type == EV_REL) {
             switch(ev.code) {
                 case REL_X:
@@ -290,15 +422,20 @@ void EventHunter::simKeyEvent(int key, int value)
 
     simWriteEvent(EV_KEY, key, value);
     
-    write(mEventFD,&emptyEvent,sizeof(emptyEvent));
+    if(write(mEventFD,&emptyEvent,sizeof(emptyEvent))!=sizeof(emptyEvent)) {
+        std::cerr << "[Info]: event write error" << std::endl;
+    }
 }
-    
+  
 void EventHunter::playGesture(unsigned gesture)
 {
     int pos_x = mPosX_a;
     int pos_y = mPosY_a;
 
     switch (gesture) {
+        case G_TOUCH:
+            sim1PointTouch(mCenterX, mCenterY, mDelay);
+            break;
         case G_PAN:
             sim1Point(mStep, false, true, 1000000);
             break;
@@ -333,29 +470,53 @@ void EventHunter::playGesture(unsigned gesture)
                 sim2Points(mStep, false);
             }
             break;
+        case G_TOUCH_HOME_SHORT:
+			simKeyEvent(102,1);
+			usleep(20000);
+			simKeyEvent(102,0);
+			break;
+		case G_TOUCH_HOME_LONG:
+			simKeyEvent(102,1);
+			usleep(2000000);
+			simKeyEvent(102,0);
+			break;
         default: break;
     }
     //std::cout << "First Event at: " << mFirstEventTS.tv_sec*1000 + mFirstEventTS.tv_nsec/1000000 << std::endl;
-    std::cout << " [Info]: Gesture started at " << mFirstEventTV.tv_sec << " - " << mFirstEventTV.tv_usec << std::endl;
+    std::cout << "[Info]: Gesture started at " << mFirstEventTV.tv_sec << " - " << mFirstEventTV.tv_usec << std::endl;
+}
+
+int EventHunter::nextContact()
+{
+    return int(rand()%1024);    
+}
+
+void EventHunter::sim1PointTouch(int posX, int posY, unsigned touchUpDelay)
+{
+    simMTMove(posX, posY, 0, 2, true, true);
+    usleep(touchUpDelay);
+    simMTEnd(0);
 }
 
 void EventHunter::sim1Point(int step, bool speedup, bool touchUp, unsigned touchUpDelay)
 {
     if (mOrientation == BREADTHWISE) {
-        simMTMoveABS_ProtoB(mPosX_a, mPosY_a, 0, 2, true);
+        //mPosX_a = mCenterX;
+        simMTMove(mPosX_a, mPosY_a, 0, 2, true, true);
         for (unsigned i = 2; i < mStepCount; i++) {
             mPosX_a += step;
-            simMTMoveABS_ProtoB(mPosX_a, mPosY_a, 0, 2, false);
+            simMTMove(mPosX_a, mPosY_a, 0, 2, false, true);
             if (speedup) {
                 step = step + mSpeedFactor;
             }
             usleep(mDelay);
         }
     } else {
-        simMTMoveABS_ProtoB(mPosX_a, mPosY_a, 0, 2, true);
+        //mPosY_a = mCenterY;
+        simMTMove(mPosX_a, mPosY_a, 0, 2, true, true);
         for (unsigned i = 1; i < mStepCount; i++) {
             mPosY_a += step;
-            simMTMoveABS_ProtoB(mPosX_a, mPosY_a, 0, 2, false);
+            simMTMove(mPosX_a, mPosY_a, 0, 2, false, true);
             if (speedup) {
                 step = step + mSpeedFactor;
             }
@@ -365,41 +526,41 @@ void EventHunter::sim1Point(int step, bool speedup, bool touchUp, unsigned touch
 
     if (touchUp) {
         usleep(touchUpDelay);
-        simMTEND_ProtoB(0);
+        simMTEnd(0);
     }
 }
 
 void EventHunter::sim2Points(int step, bool touchUp)
 {
     if (mOrientation == BREADTHWISE) {
-        simMTMoveABS_ProtoB(mPosX_a, mPosY_a, 0, 2, true);
-        simMTMoveABS_ProtoB(mPosX_b, mPosY_b, 1, 4, true);
+        simMTMove(mPosX_a, mPosY_a, 0, 2, true, false);
+        simMTMove(mPosX_b, mPosY_b, 1, 4, true, true);
         for (unsigned i = 1; i < mStepCount; i++) {
             mPosX_a += step;
             mPosX_b -= step;
-            simMTMoveABS_ProtoB(mPosX_a, mPosY_a, 0, 2, false);
-            simMTMoveABS_ProtoB(mPosX_b, mPosY_b, 1, 4, false);
+            simMTMove(mPosX_a, mPosY_a, 0, 2, false, false);
+            simMTMove(mPosX_b, mPosY_b, 1, 4, false, true);
             usleep(mDelay);
         }
     } else {
-        simMTMoveABS_ProtoB(mPosX_a, mPosY_a, 0, 2, true);
-        simMTMoveABS_ProtoB(mPosX_b, mPosY_b, 1, 4, true);
+        simMTMove(mPosX_a, mPosY_a, 0, 2, true, false);
+        simMTMove(mPosX_b, mPosY_b, 1, 4, true, true);
         for (unsigned i = 1; i < mStepCount; i++) {
             mPosY_a += step;
             mPosY_b -= step;
-            simMTMoveABS_ProtoB(mPosX_a, mPosY_a, 0, 2, false);
-            simMTMoveABS_ProtoB(mPosX_b, mPosY_b, 1, 4, false);
+            simMTMove(mPosX_a, mPosY_a, 0, 2, false, false);
+            simMTMove(mPosX_b, mPosY_b, 1, 4, false, true);
             usleep(mDelay);
         }
     }
 
     if (touchUp) {
-        simMTEND_ProtoB(0);
-        simMTEND_ProtoB(1);
+        simMTEnd(0);
+        simMTEnd(1);
     }
 }
 
 inline void EventHunter::log(std::string pre, struct input_event & ev)
 {
-    std::cout << "[Event]: <" << pre << "> " << ev.code << ":" << ev.value << " at " << ev.time.tv_sec << " - " << ev.time.tv_usec << std::endl;
+    std::cout << "[Event]: <" << pre << "> " << ev.code << ":" << ev.value << " at " << ev.time.tv_sec<< " - " << ev.time.tv_usec << std::endl;
 }

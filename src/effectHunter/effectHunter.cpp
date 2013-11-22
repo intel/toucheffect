@@ -70,7 +70,7 @@ EffectHunter::EffectHunter(long winId, int mode, int sampleCount)
     }
 
     struct sigaction act;
-    if (mMode == SAMPLE_FPS) {
+    if (mMode == SAMPLE_FPS || mMode == SAMPLE_FPS_JITTERNESS) {
         int sig = 14; // SIGALRM
         sigemptyset(&act.sa_mask);
         act.sa_flags=SA_SIGINFO;
@@ -129,7 +129,7 @@ void EffectHunter::collectFPS()
     
     XEvent e;
 
-    if (mMode == SAMPLE_FPS) {
+    if (mMode == SAMPLE_FPS || mMode == SAMPLE_FPS_JITTERNESS) {
         struct itimerval itVal;
         itVal.it_interval.tv_sec = 1;
         itVal.it_interval.tv_usec = 0;
@@ -142,7 +142,9 @@ void EffectHunter::collectFPS()
         while (!mTermFlag) {
             XNextEvent(mXWindowDisplay, &e);
             if (e.type == (damageEvt + XDamageNotify)) {
-                //printEvent(&e);
+                if (mMode == SAMPLE_FPS_JITTERNESS) {
+                        printEvent(&e);
+                }
                 mFPS++;
             }
         }
@@ -177,21 +179,24 @@ void EffectHunter::collectFPS()
 
 void EffectHunter::printEvent(XEvent * event) 
 {
-    XDamageNotifyEvent * damageEvent = (XDamageNotifyEvent *) event;
+    //XDamageNotifyEvent * damageEvent = (XDamageNotifyEvent *) event;
 
-    std::cout << "Type:" << damageEvent->type << std::endl;
-    std::cout << "Serial:" << damageEvent->serial << std::endl;
+    gettimeofday(mLastXDamageEventTimeStamp, NULL);
+    std::cout << " [Info]: Time Interval - " << (mLastXDamageEventTimeStamp->tv_sec - mFirstXDamageEventTimeStamp->tv_sec)*1000000 + mLastXDamageEventTimeStamp->tv_usec - mFirstXDamageEventTimeStamp->tv_usec <<  " us" << std::endl;
+    mFirstXDamageEventTimeStamp->tv_sec = mLastXDamageEventTimeStamp->tv_sec;
+    mFirstXDamageEventTimeStamp->tv_usec = mLastXDamageEventTimeStamp->tv_usec;
+    /*std::cout << "Serial:" << damageEvent->serial << std::endl;
     std::cout << "Level:" << damageEvent->type << std::endl;
    
     std::cout << "Area: " << damageEvent->area.x << ' ' << damageEvent->area.y << ' '<< damageEvent->area.width << ' ' << damageEvent->area.height << std::endl;
     std::cout << "Geometry: " << damageEvent->geometry.x << ' ' << damageEvent->geometry.y << ' '<< damageEvent->geometry.width << ' ' << damageEvent->geometry.height << std::endl;
-
+*/
 }
 
 void EffectHunter::processAlarm()
 { 
     mFPSs.push_back(mFPS);
-    std::cout << " [Info]: " << mFPS << " - round " << mFPSCount ++ << std::endl; 
+    std::cout << " [Info]: " << mFPS << " FPS - round " << mFPSCount ++ << std::endl; 
     mFPS = 0;
     if (mFPSCount == mSampleCount) {
         mTermFlag = true;

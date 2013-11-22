@@ -25,6 +25,9 @@
 #include <iostream>
 #include <cstring>
 #include <cstdlib>
+#include <string>
+#include <stdio.h>
+
 
 
 void printUsage();
@@ -42,9 +45,11 @@ int main(int argc, char ** argv)
     char        eventInterface[64] = {'\0'};
     unsigned    gesture = EventHunter::G_SPREAD; 
     unsigned    orientation = EventHunter::BREADTHWISE;
+    unsigned    protocolType = EventHunter::P_TYPE_A;
     bool        isWrite = false;
     bool        isInterfaceSet = false;
-    const std::string version = "1.00";
+    bool        isDetectMode = false;
+    const std::string version = "1.10";
 
     std::string temp;
 
@@ -80,6 +85,8 @@ int main(int argc, char ** argv)
                             gesture = EventHunter::G_FLICKING; 
                         } else if (strcmp(argv[index+1], "ZOOMING")==0) {
                             gesture = EventHunter::G_ZOOMING; 
+                        } else if (strcmp(argv[index+1], "TOUCH")==0) {
+                            gesture = EventHunter::G_TOUCH; 
                         } else {
                             printUsage();
                             return 1;
@@ -97,6 +104,22 @@ int main(int argc, char ** argv)
                                 break;
                             case 'L': 
                                 orientation = EventHunter::LENGTHWAYS;
+                                break;
+                            default: break;
+                        }
+                    } else {
+                        printUsage();
+                        return 1;
+                    }
+                    break;
+                case 't':
+                    if (index +1 < argc) {
+                        switch ((argv[index+1])[0]) {
+                            case 'A':
+                                protocolType = EventHunter::P_TYPE_A;
+                                break;
+                            case 'B': 
+                                protocolType = EventHunter::P_TYPE_B;
                                 break;
                             default: break;
                         }
@@ -145,6 +168,9 @@ int main(int argc, char ** argv)
                         return 1;
                     }
                     break;
+                case 'a':
+                    isDetectMode = true;
+                    break;
                 case 'x':
                     logLevel = 2;
                     break;
@@ -157,17 +183,21 @@ int main(int argc, char ** argv)
         }    
     }
 
-    if (isInterfaceSet == false) {
+    if (!isInterfaceSet && !isDetectMode) {
         printUsage();
         return 1;
     }
+    if (!isDetectMode) {
+        EventHunter eventHunter(eventInterface, posX, posY, delay, orientation, protocolType, step, stepCount, speedFactor, logLevel);
 
-    EventHunter eventHunter(eventInterface, posX, posY, delay, orientation, step, stepCount, speedFactor, logLevel);
-
-    if (isWrite) {
-        eventHunter.playGesture(gesture);
+        if (isWrite) {
+            eventHunter.playGesture(gesture);
+        } else {
+            eventHunter.readEvent();
+        }
     } else {
-        eventHunter.readEvent();
+        EventHunter eventHunter;
+        eventHunter.detect();
     }
    
     return 0;
@@ -176,9 +206,9 @@ int main(int argc, char ** argv)
 void printUsage()
 {
     std::cout << "Usage:" << std::endl;
-    std::cout << "eventHunter -i input_event_interface [-g GESTURE] [-s STEP] [-c STEPCOUNT] [-d DELAY] [-o ORIENTATION] [-x] [-v]" << std::endl;
+    std::cout << "eventHunter -i input_event_interface [-g GESTURE] [-s STEP] [-c STEPCOUNT] [-d DELAY] [-o ORIENTATION] [-t MT_TYPE] [-x] [-v]" << std::endl;
     std::cout << "-i    Set the input event interface for your specified device." << std::endl;
-    std::cout << "-g    Set the gesture type: SWIPE, SWIPING, PAN, FLICK, FLICKING, PINCH, SPREAD, ZOOMING. Default is SWIPE" << std::endl;
+    std::cout << "-g    Set the gesture type: TOUCH, SWIPE, SWIPING, PAN, FLICK, FLICKING, PINCH, SPREAD, ZOOMING. Default is SWIPE" << std::endl;
     std::cout << "-s    set the step of one movement. Default is 2 px" << std::endl;
     std::cout << "-c    Set the step count during one gesture. Default is 100" << std::endl;
     std::cout << "-p    Set the x coordinate of screen center. Default is 450 px" << std::endl;
@@ -186,6 +216,8 @@ void printUsage()
     std::cout << "-d    Set the delay between each movement. Default is 5 ms" << std::endl;
     std::cout << "-x    Debug information for all the events." << std::endl;
     std::cout << "-o    Set the orientation of gesture: B - Breadthwise, L - Lengthways. Default is B" << std::endl;
+    std::cout << "-t    Set the multi-touch protocol type: A - MT Type A, B - MT Type B. Default is A" << std::endl;
+    std::cout << "-a    Enter auto detect mode, to detect MT event interface and related protocol type" << std::endl;
     std::cout << "-v    Show version information" << std::endl;
     std::cout << "Example: eventHunter -i /dev/input/event3 (means starting eventHunter by hooking to /dev/input/event3)" << std::endl;
     std::cout << "___________________________________________________________________________________" << std::endl;

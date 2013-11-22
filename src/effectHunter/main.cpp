@@ -40,7 +40,7 @@ int main(int argc, char *argv[])
     int     sampleCount = 20;
     bool    winIdSet = false;
     int     mode = SAMPLE_FPS;
-    const std::string version = "1.00"; 
+    const std::string version = "1.10"; 
    
     std::string temp;
     for (int index=1; index < argc; index++) {
@@ -71,6 +71,9 @@ int main(int argc, char *argv[])
                     break;
                 case 't':
                     mode = SAMPLE_TIMESTAMP;
+                    break;
+                case 'j':
+                    mode = SAMPLE_FPS_JITTERNESS;
                     break;
                 case 'h':
                     printUsage();
@@ -117,7 +120,7 @@ int main(int argc, char *argv[])
             std::cerr << "Thread join failed" << std::endl;
             exit(EXIT_FAILURE);
         }
-    } else if (mode == SAMPLE_FPS) {
+    } else if (mode == SAMPLE_FPS || mode == SAMPLE_FPS_JITTERNESS) {
         startEffectHunter(&paramEffect);
     }
     
